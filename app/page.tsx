@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { v4 as uuidv4 } from "uuid";
 
 export default function Home() {
@@ -8,11 +8,16 @@ export default function Home() {
     const [uuid, setUuid] = useState<string | null>(null);
     const [isRunning, setIsRunning] = useState(false);
     const [isReady, setIsReady] = useState(false);
+    const [srcDoc, setSrcDoc] = useState("");
 
-    const handleBenchmark = async () => {
+    const handleCodeChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        setCode(e.target.value);
+    }, []);
+
+    const handleBenchmark = useCallback(async () => {
         const newUuid = uuidv4();
         setUuid(newUuid);
-        setIsRunning(false);
+        setIsRunning(true);
         setIsReady(false);
 
         try {
@@ -22,41 +27,49 @@ export default function Home() {
                 body: JSON.stringify({ code }),
             });
 
-            if (response.ok) {
-                setIsRunning(true);
-            } else {
+            if (!response.ok) {
                 console.error("Failed to start benchmark");
+                setIsRunning(false);
                 setUuid(null);
             }
         } catch (error) {
             console.error("Error starting benchmark:", error);
+            setIsRunning(false);
             setUuid(null);
         }
-    };
+    }, [code]);
 
     useEffect(() => {
+        let intervalId: NodeJS.Timeout | null = null;
+
         if (isRunning && uuid) {
-            const interval = setInterval(async () => {
+            intervalId = setInterval(async () => {
                 try {
                     const response = await fetch(`/api/benchmark?uuid=${uuid}`);
                     if (response.ok) {
                         const data = await response.json();
-                        if (data.ready) {
+                        if (data.result) {
                             setIsReady(true);
                             setIsRunning(false);
-                            clearInterval(interval);
+                            setSrcDoc(data.result);
+                            if (intervalId) {
+                                clearInterval(intervalId);
+                            }
                         }
                     } else {
                         console.error("Failed to fetch benchmark result");
-                        clearInterval(interval);
+                        setIsRunning(false);
                     }
                 } catch (error) {
                     console.error("Error fetching benchmark result:", error);
-                    clearInterval(interval);
+                    setIsRunning(false);
                 }
             }, 5000);
-            return () => clearInterval(interval);
         }
+
+        return () => {
+            if (intervalId) clearInterval(intervalId);
+        };
     }, [isRunning, uuid]);
 
     return (
@@ -64,19 +77,19 @@ export default function Home() {
             <textarea
                 className="w-full h-64 p-2 border border-gray-300 rounded mb-4"
                 value={code}
-                onChange={(e) => setCode(e.target.value)}
+                onChange={handleCodeChange}
                 placeholder="Paste your TypeScript code here..."
             />
             <button
                 className={`
-          font-bold py-2 px-4 rounded
-          ${
-              isRunning
-                  ? "bg-gray-400 text-gray-700 cursor-not-allowed opacity-50"
-                  : "bg-blue-500 hover:bg-blue-700 text-white"
-          }
-          transition-all duration-300 ease-in-out
-        `}
+                    font-bold py-2 px-4 rounded
+                    ${
+                        isRunning
+                            ? "bg-gray-400 text-gray-700 cursor-not-allowed opacity-50"
+                            : "bg-blue-500 hover:bg-blue-700 text-white"
+                    }
+                    transition-all duration-300 ease-in-out
+                `}
                 onClick={handleBenchmark}
                 disabled={isRunning}
             >
@@ -88,7 +101,7 @@ export default function Home() {
                     <h2 className="text-xl font-bold mb-2">
                         Benchmark Result:
                     </h2>
-                    <iframe srcDoc="" />
+                    <iframe srcDoc={srcDoc} className="w-full h-screen"/>
                 </div>
             )}
         </main>
